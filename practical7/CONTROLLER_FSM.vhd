@@ -41,8 +41,8 @@ END CONTROLLER_FSM;
 
 ARCHITECTURE STRUCTURE OF CONTROLLER_FSM IS
 -- YOUR CODE GOES HERE
-TYPE state IS (RD, WR, DE0, DE1);
-SIGNAL currstate : state := RD;
+TYPE state IS (RS, RD, WR, CP, DE, NO, JU);
+SIGNAL currstate : state := RS;
 BEGIN
 -- AND HERE
 -- The CONTROLLER_FSM receives the op code in INSTR(3 DOWNTO <= '0';), which is the upper nibble of INSTR_BYTE1.
@@ -53,29 +53,7 @@ PROCESS (RESET_N, CLK_IN)
 BEGIN
 IF RESET_N = '0' THEN
 	-- RESET and DO NOTHING values
-	currstate <= RD;
-	COMP_SEL <= '0';
-	RESET_INSTR_NUMBER <= '0';
-	REG_RE_N <= '1';
-	COMP_EN <= '0';
-	SET_INSTR_NUMBER <= '0';
-	REG_PR_N <= '1';
-	COMP_OE <= '0';
-	INCR_INSTR_NUMBER_NE <= '0';
-	REG_CL_N <= '1';
-	SPEC_REG_WR_N <= '1';
-	INSTR_EN <= '1';
-	DISP_EN <= '0';
-	SPEC_REG_RE_N <= '1';
-	INSTR_OE <= '0';
-	DISP_BYTE_SELECT <= '0';
-	ARITH_SEL <= '0';
-	SEL_ADDR <= '1';
-	DISP_PWR <= '0';
-	ARITH_EN <= '0';
-	REG_CPY_N <= '1';
-	ARITH_OE <= '0';
-	REG_WR_N <= '1';
+	currstate <= RS;
 ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 	-- DO NOTHING VALUES
 	COMP_SEL <= '0';
@@ -88,7 +66,7 @@ ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 	INCR_INSTR_NUMBER_NE <= '0';
 	REG_CL_N <= '1';
 	SPEC_REG_WR_N <= '1';
-	INSTR_EN <= '1';
+	INSTR_EN <= '0';
 	DISP_EN <= '0';
 	SPEC_REG_RE_N <= '1';
 	INSTR_OE <= '0';
@@ -102,30 +80,48 @@ ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 	REG_WR_N <= '1';
 	-- STATE SELECTION
 	CASE currstate IS
-	WHEN WR =>
-		IF INSTR(3 DOWNTO 0) = "0000" THEN
+	WHEN RS =>
+		RESET_INSTR_NUMBER <= '1'; --
+		REG_CL_N <= '0'; --
+		INSTR_EN <= '1';
+		currstate <= RD;
+	WHEN RD =>
+		CASE INSTR(3 DOWNTO 0) IS
+		WHEN "0000" => -- WR
 			INSTR_OE <= '1'; -- LOAD DATA FROM BYTE2 ON D_BUS -- ADDRESS TO BE WRITTEN ON IS AUTOMATICALLY ON REG_WR_ADDRESS
 			REG_WR_N <= '0'; -- ENABLE WRITING (ACTIVE LOW)
-		END IF;
-		INCR_INSTR_NUMBER_NE <= '1'; -- INCREMENT INSTR NB (NE SO 0)
-		currstate <= DE0;
-	-- DE
-	WHEN DE0 | DE1 =>
-		IF INSTR(3 DOWNTO 0) = "0010" OR INSTR(3 DOWNTO 0) = "0011" THEN
+			INCR_INSTR_NUMBER_NE <= '1';
+			currstate <= WR;
+		WHEN "0001" => -- CP
+			INSTR_OE <= '1';
+			REG_WR_N <= '0';
+			REG_RE_N <= '0';
+			REG_CPY_N <= '0';
+			SEL_ADDR <= '0';
+			INCR_INSTR_NUMBER_NE <= '1';
+			currstate <= CP;
+		WHEN "0010" | "0011"  => -- DE0x1
 			REG_RE_N <= '0'; -- READ FROM ADDRESS --> COMPONENT SEG DISPLAY WILL READ FROM THE TWO DBUS NIBBLES
 			SEL_ADDR <= '0';
 			DISP_BYTE_SELECT <= INSTR(0);
 			DISP_EN <= '1'; -- ENABLE DISP COMPONENT
-			DISP_PWR <= '1'; -- POWER ON
-		END IF;
-		IF currstate = DE0 THEN
-			currstate <= DE1;
-		ELSE
+			DISP_PWR <= '1'; -- POWER O
+			INCR_INSTR_NUMBER_NE <= '1';
+			currstate <= DE;
+		WHEN "0110" => -- JU
+			INSTR_OE <= '1';
+			SET_INSTR_NUMBER <= '1';
+			INCR_INSTR_NUMBER_NE <= '1';
+			currstate <= JU;
+		WHEN "1111" => -- NO
+			INCR_INSTR_NUMBER_NE <= '1';
+			currstate <= NO;
+		WHEN OTHERS => -- RD
 			currstate <= RD;
-		END IF;
-		INCR_INSTR_NUMBER_NE <= '1';
-	WHEN OTHERS =>
-		currstate <= WR;
+		END CASE;
+	WHEN OTHERS => -- WR, DE, NO, JU
+		INSTR_EN <= '1';
+		currstate <= RD;
 	END CASE;
 END IF;
 END PROCESS;
