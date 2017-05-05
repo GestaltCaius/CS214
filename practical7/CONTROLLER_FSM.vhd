@@ -41,8 +41,9 @@ END CONTROLLER_FSM;
 
 ARCHITECTURE STRUCTURE OF CONTROLLER_FSM IS
 -- YOUR CODE GOES HERE
-TYPE state IS (RS, RD, WR, CP, DE, NO, JU);
+TYPE state IS (RS, RD, WR, CP, DE, NO, JU, AD);
 SIGNAL currstate : state := RS;
+SIGNAL step : INTEGER RANGE 1 TO 4 := 1;
 BEGIN
 -- AND HERE
 -- The CONTROLLER_FSM receives the op code in INSTR(3 DOWNTO <= '0';), which is the upper nibble of INSTR_BYTE1.
@@ -116,10 +117,37 @@ ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 		WHEN "1111" => -- NO
 			INCR_INSTR_NUMBER_NE <= '1';
 			currstate <= NO;
+		WHEN "0100" => -- ADx
+			IF step = 1 THEN
+			SEL_ADDR <='0';
+			REG_RE_N <='0';
+			ARITH_EN <='1';
+			ARITH_SEL <='0';
+			step <= 2;
+			END IF;
+			IF step = 2 THEN
+			INSTR_OE <='1';
+			SPEC_REG_WR_N <='0';
+			step <= 3;
+			END IF;
+			IF step = 3 THEN
+			SPEC_REG_RE_N <='0';
+			REG_RE_N <='0';
+			ARITH_EN <='1';
+			ARITH_SEL <='1';
+			step <= 4;
+			END IF;
+			IF step = 4 THEN
+			ARITH_OE <='1';
+			REG_WR_N <='0';
+			INCR_INSTR_NUMBER_NE <= '1';
+			step <= 1; -- re-init the step counter for next use
+			currstate <= AD;
+			END IF;
 		WHEN OTHERS => -- RD
 			currstate <= RD;
 		END CASE;
-	WHEN OTHERS => -- WR, DE, NO, JU
+	WHEN OTHERS => -- WR, DE, NO, JU, AD
 		INSTR_EN <= '1';
 		currstate <= RD;
 	END CASE;
