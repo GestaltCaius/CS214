@@ -41,20 +41,24 @@ END CONTROLLER_FSM;
 
 ARCHITECTURE STRUCTURE OF CONTROLLER_FSM IS
 -- YOUR CODE GOES HERE
-TYPE state IS (RS, RD, WR, CP, DE, NO, JU, AD);
-SIGNAL currstate : state := RS;
-SIGNAL step : INTEGER RANGE 1 TO 4 := 1;
+TYPE state IS (RS, RD, WR, CP, DE, NO, JU, AD, CJ, CM);
+SIGNAL currstate : state := RS; -- start Read because step starts at 4 to reset. (it's a weird way of doing it but starting with state RS didnt worked for me)
+SIGNAL step : INTEGER RANGE 1 TO 4 := 1; -- I use it to "select" op steps.
+SIGNAL CLOCK_20Hz : STD_LOGIC;
 BEGIN
 -- AND HERE
 -- The CONTROLLER_FSM receives the op code in INSTR(3 DOWNTO <= '0';), which is the upper nibble of INSTR_BYTE1.
 -- By setting REG_WR_N = ‘0’, the REGISTER_BANK will write the data from D_BUS (xxxx xxxx) into the register at REG_WR_ADDR (aaaa).
 
 -- STATE UPDATE
-PROCESS (RESET_N, CLK_IN)
+PROCESS (RESET_N, CLOCK_20Hz)
 BEGIN
-IF RESET_N = '0' THEN
+IF RESET_N = '0' OR currstate = RS THEN
 	-- RESET and DO NOTHING values
-	currstate <= RS;
+	RESET_INSTR_NUMBER <= '1'; --
+	REG_CL_N <= '0'; --
+	INSTR_EN <= '1';
+	currstate <= RD;
 ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 	-- DO NOTHING VALUES
 	COMP_SEL <= '0';
@@ -81,11 +85,6 @@ ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 	REG_WR_N <= '1';
 	-- STATE SELECTION
 	CASE currstate IS
-	WHEN RS =>
-		RESET_INSTR_NUMBER <= '1'; --
-		REG_CL_N <= '0'; --
-		INSTR_EN <= '1';
-		currstate <= RD;
 	WHEN RD =>
 		CASE INSTR(3 DOWNTO 0) IS
 		WHEN "0000" => -- WR
@@ -111,8 +110,7 @@ ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 			currstate <= DE;
 		WHEN "0110" => -- JU
 			INSTR_OE <= '1';
-			SET_INSTR_NUMBER <= '1';
-			INCR_INSTR_NUMBER_NE <= '1';
+			SET_INSTR_NUMBER <= '1'; -- DO NOT INCREMENT, we already jumped here.
 			currstate <= JU;
 		WHEN "1111" => -- NO
 			INCR_INSTR_NUMBER_NE <= '1';
@@ -144,10 +142,52 @@ ELSIF CLK_IN'EVENT AND CLK_IN = '1' THEN
 			step <= 1; -- re-init the step counter for next use
 			currstate <= AD;
 			END IF;
+		WHEN "0111" => -- CJ
+			IF step = 1 THEN -- CJ1
+				SEL_ADDR <= '0';
+				REG_RE_N <= '0';
+				IF JUMP_COND = '1' THEN step <= 2; ELSE step <= 3; END IF; -- step 2 : CJ2 // step 3 : NO1
+			ELSE
+				IF step = 2 THEN -- CJ2
+					SET_INSTR_NUMBER <= '1';
+					SEL_ADDR <= '0';
+					INSTR_OE <= '1';
+				END IF;
+				IF step = 3 THEN -- NO1
+					INCR_INSTR_NUMBER_NE <= '1';
+				END IF;
+				step <= 1; -- re-init step counter for next use (AD or CJ)
+				currstate <= CJ;
+			END IF;
+		WHEN "0101" => -- CM
+			CASE step IS
+			WHEN 1 => -- CM1
+				SEL_ADDR <= '0';
+				REG_RE_N <= '0';
+				COMP_EN <= '1';
+				COMP_SEL <= '0';
+				step <= 2;
+			WHEN 2 =>
+				INSTR_OE <= '1';
+				SPEC_REG_WR_N <= '0';
+				step <= 3;
+			WHEN 3 =>
+				SPEC_REG_RE_N <= '0';
+				REG_RE_N <= '0';
+				COMP_EN <= '1';
+				COMP_SEL <= '1';
+				step <= 4;
+			WHEN 4 =>
+				COMP_OE <= '1';
+				REG_WR_N <= '0';
+				INCR_INSTR_NUMBER_NE <= '1';
+				step <= 1; -- re-init step counter for next use of CM CJ or AD.
+				currstate <= CM;
+			END CASE;
 		WHEN OTHERS => -- RD
 			currstate <= RD;
 		END CASE;
-	WHEN OTHERS => -- WR, DE, NO, JU, AD
+	WHEN OTHERS => -- WR, DE, NO, JU, AD, CJ, CM
 		INSTR_EN <= '1';
 		currstate <= RD;
 	END CASE;
